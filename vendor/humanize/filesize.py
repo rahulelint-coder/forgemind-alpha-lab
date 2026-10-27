@@ -4,7 +4,7 @@ from __future__ import annotations
 
 __lazy_modules__ = {"humanize.i18n"}
 
-from humanize.i18n import _gettext as _
+from humanize.i18n import _gettext as _, decimal_separator
 
 suffixes = {
     "decimal": (
@@ -106,5 +106,9 @@ def naturalsize(
     if exp < len(suffix) and abs(float(format % (abs_bytes / (base**exp)))) >= base:
         exp += 1
     space = "" if gnu else " "
-    ret: str = format % (bytes_ / (base**exp)) + space + _(suffix[exp - 1])
+    # Apply locale-aware decimal separator to the formatted number
+    num = format % (bytes_ / (base**exp))
+    if "." in num:
+        num = num.replace(".", decimal_separator())
+    ret: str = f"{num}{space}{_(suffix[exp - 1])}"
     return ret
