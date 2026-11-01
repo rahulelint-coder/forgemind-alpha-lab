@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 __lazy_modules__ = {"humanize.i18n"}
 
 from humanize.i18n import _gettext as _, decimal_separator
@@ -33,6 +35,24 @@ suffixes = {
     ),
     "gnu": "KMGTPEZYRQ",
 }
+
+
+def _format_parts(format: str, value: float) -> tuple[str, str, str]:
+    """Separate literal text from the single percent conversion being formatted."""
+    # Preserve Python's validation/errors for invalid or multi-argument formats.
+    format % value
+    matches = [
+        match for match in re.finditer(
+            r"%%|%[-+#0 ]*\d*(?:\.\d*)?[hlL]?[diouxXeEfFgGcrsa]", format
+        )
+        if match.group() != "%%"
+    ]
+    if len(matches) != 1:
+        raise ValueError("format must contain one numeric conversion")
+    match = matches[0]
+    prefix = format[:match.start()].replace("%%", "%")
+    suffix = format[match.end():].replace("%%", "%")
+    return prefix, match.group() % value, suffix
 
 
 def naturalsize(
@@ -99,16 +119,13 @@ def naturalsize(
     from math import log
 
     exp = int(min(log(abs_bytes, base), len(suffix)))
-    # The suffix is chosen from the unrounded byte count, but `format` rounds the
-    # mantissa afterward; rounding can push it up to `base` (e.g. 999999 is
-    # 999.999 kB, which formats to "1000.0 kB"). When that happens and a larger
-    # suffix is available, step up one suffix so the result reads "1.0 MB".
-    if exp < len(suffix) and abs(float(format % (abs_bytes / (base**exp)))) >= base:
+    # Round only the conversion's numeric output: literal labels may contain
+    # numbers and periods of their own (for example, "version2.7: %.1f").
+    rounded = _format_parts(format, abs_bytes / (base**exp))[1]
+    if exp < len(suffix) and abs(float(rounded)) >= base:
         exp += 1
+    prefix, number, literal_suffix = _format_parts(format, bytes_ / (base**exp))
+    number = number.replace(".", decimal_separator())
     space = "" if gnu else " "
-    # Apply locale-aware decimal separator to the formatted number
-    num = format % (bytes_ / (base**exp))
-    if "." in num:
-        num = num.replace(".", decimal_separator())
-    ret: str = f"{num}{space}{_(suffix[exp - 1])}"
+    ret: str = f"{prefix}{number}{literal_suffix}{space}{_(suffix[exp - 1])}"
     return ret
